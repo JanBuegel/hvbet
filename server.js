@@ -70,6 +70,9 @@ let leaderChangeTimer = null;
 
 const ts = () => new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+// Schedule timer on startup so it works even without any admin action
+setTimeout(() => scheduleLeaderChange(buildPayload()), 0);
+
 function broadcast(reason = 'data') {
   const payload = buildPayload();
   const data = JSON.stringify(payload);
