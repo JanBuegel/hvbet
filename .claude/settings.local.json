@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node server.js)",
+      "Bash(curl -s http://localhost:3000/api/state)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s -X POST http://localhost:3000/api/participants -H 'Content-Type: application/json' -d '{\"name\":\"Anna\",\"guessTime\":\"14:30\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/participants -H 'Content-Type: application/json' -d '{\"name\":\"Max\",\"guessTime\":\"15:00\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/participants -H 'Content-Type: application/json' -d '{\"name\":\"Tom\",\"guessTime\":\"15:30\"}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/end -H 'Content-Type: application/json' -d '{\"endTime\":\"15:04\"}')",
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/participants -H 'Content-Type: application/json' -d '{\"name\":\"Test\",\"guessTime\":\"14:00\"}')",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/participants -H 'Content-Type: application/json' -H 'Authorization: Bearer falsch' -d '{\"name\":\"Test\",\"guessTime\":\"14:00\"}')",
+      "Bash(curl -s -w ' %{http_code}' -X POST http://localhost:3000/api/participants -H 'Content-Type: application/json' -H 'Authorization: Bearer geheim123' -d '{\"name\":\"Anna\",\"guessTime\":\"14:30\"}')",
+      "Bash(curl -s -w ' %{http_code}' -X POST http://localhost:3000/api/participants -H 'Content-Type: application/json' -H 'Authorization: Bearer geheim123' -d '{\"name\":\"Max\",\"guessTime\":\"14:21\"}')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Leader:', d['leader']['name'] if d['leader'] else 'None'\\)\")",
+      "Bash(node *)"
+    ]
+  }
+}

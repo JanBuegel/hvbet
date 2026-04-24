@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HV Wette — Live</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+</head>
+<body>
+
+<header class="site-header">
+  <h1>🏛 HV-WETTE</h1>
+  <span class="badge">LIVE</span>
+</header>
+
+<div class="frontend-layout">
+  <!-- LEFT -->
+  <div class="left-col">
+    <div id="winner-banner" class="card winner-banner">
+      <h2>🏆 Gewinner!</h2>
+      <div id="winner-names" class="winner-names"></div>
+      <div id="winner-sub" class="winner-sub"></div>
+    </div>
+
+    <div id="leader-card" class="card leader-card">
+      <div class="pulse"></div>
+      <div class="label">▶ Aktuell Führend</div>
+      <div class="name" id="leader-name">—</div>
+      <div class="time" id="leader-time"></div>
+      <div class="wins-until" id="leader-wins-until"></div>
+    </div>
+
+    <div id="next-card" class="card next-card">
+      <div class="label">⏭ Nächster Führender</div>
+      <div class="name" id="next-name">—</div>
+      <div class="time" id="next-time"></div>
+    </div>
+
+    <div class="card pot-card">
+      <div class="pot-label">💰 Im Pott</div>
+      <div class="pot-amount" id="pot-amount">0 €</div>
+      <div class="pot-sub" id="pot-sub"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right-col">
+    <div class="card clock-card">
+      <div class="clock-value" id="clock">--:--:--</div>
+      <div class="clock-date" id="clock-date"></div>
+    </div>
+
+    <div class="card list-card">
+      <div class="list-title">// ALLE TIPPS</div>
+      <div id="participants-list"><div class="empty-state">Noch keine Teilnehmer...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Clock ──
+  function tickClock() {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+      now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    document.getElementById('clock-date').textContent =
+      now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  }
+  setInterval(tickClock, 1000);
+  tickClock();
+
+  // ── Confetti ──
+  let confettiFired = false;
+  function fireConfetti() {
+    if (confettiFired) return;
+    confettiFired = true;
+    const end = Date.now() + 4000;
+    const colors = ['#39d353', '#58a6ff', '#e3b341', '#f85149', '#ffd700'];
+    (function frame() {
+      confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors });
+      confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 }, colors });
+      if (Date.now() < end) requestAnimationFrame(frame);
+    })();
+  }
+
+  // ── SSE ──
+  let lastWinnerState = false;
+  const evtSource = new EventSource('/api/events');
+
+  evtSource.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    const now = new Date();
+    if (data.leaderWinsUntilMs && !data.actualEndTime) {
+      const todayStart = new Date(now).setHours(0, 0, 0, 0);
+      const msUntil = (todayStart + data.leaderWinsUntilMs) - now;
+      console.log(
+        `%c[HV-Wette] SSE @ ${now.toLocaleTimeString('de-DE')} — Führungswechsel um ${data.leaderWinsUntil} Uhr (in ${Math.round(msUntil / 1000)}s)`,
+        'color: #39d353; font-family: monospace;'
+      );
+    } else {
+      console.log(
+        `%c[HV-Wette] SSE @ ${now.toLocaleTimeString('de-DE')}`,
+        'color: #6e7681; font-family: monospace;'
+      );
+    }
+    render(data);
+  };
+
+  evtSource.onerror = () => {
+    console.warn('%c[HV-Wette] SSE-Verbindung unterbrochen, reconnecting...', 'color: #f85149; font-family: monospace;');
+  };
+
+  function render(data) {
+    const { participants, betAmount, pot, leader, leaders, nextLeader, actualEndTime, winners } = data;
+    const leaderIds = new Set((leaders || []).map(l => l.id));
+    const now = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+    // Winner state
+    const isFinished = !!actualEndTime && winners.length > 0;
+    const winnerBanner = document.getElementById('winner-banner');
+    const leaderCard = document.getElementById('leader-card');
+    const nextCard = document.getElementById('next-card');
+
+    if (isFinished) {
+      if (!lastWinnerState) { fireConfetti(); lastWinnerState = true; }
+      winnerBanner.classList.add('visible');
+      leaderCard.style.display = 'none';
+      nextCard.style.display = 'none';
+
+      const winPot = pot / winners.length;
+      document.getElementById('winner-names').textContent = winners.map(w => w.name).join(' & ');
+      document.getElementById('winner-sub').textContent =
+        `Tipp: ${winners.map(w => w.guessTime).join(' / ')} Uhr · HV Ende: ${actualEndTime} Uhr · Gewinn: ${winPot.toFixed(2)} € ${winners.length > 1 ? 'je Person' : ''}`;
+    } else {
+      lastWinnerState = false;
+      confettiFired = false;
+      winnerBanner.classList.remove('visible');
+      leaderCard.style.display = '';
+      nextCard.style.display = '';
+
+      const leaderNames = leaders && leaders.length > 0 ? leaders.map(l => l.name).join(' & ') : '—';
+      document.getElementById('leader-name').textContent = leaderNames;
+      document.getElementById('leader-time').textContent = leader ? `⏰ ${leader.guessTime} Uhr` : '';
+      document.getElementById('leader-wins-until').textContent = data.leaderWinsUntil ? `hat gewonnen bis: ${data.leaderWinsUntil} Uhr` : '';
+      document.getElementById('next-name').textContent = nextLeader ? nextLeader.name : '—';
+      document.getElementById('next-time').textContent = nextLeader ? `⏰ ${nextLeader.guessTime} Uhr` : '';
+    }
+
+    // Pot
+    document.getElementById('pot-amount').textContent = `${pot} €`;
+    document.getElementById('pot-sub').textContent =
+      `${participants.length} Teilnehmer × ${betAmount} €`;
+
+    // List
+    const listEl = document.getElementById('participants-list');
+    if (participants.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">Noch keine Teilnehmer...</div>';
+      return;
+    }
+
+    const winnerIds = new Set(winners.map(w => w.id));
+
+    listEl.innerHTML = participants.map((p, i) => {
+      const isPast = !actualEndTime && p.guessTime < now;
+      const isLeader = !isFinished && leaderIds.has(p.id);
+      const isNext = !isFinished && nextLeader && p.id === nextLeader.id;
+      const isWinner = winnerIds.has(p.id);
+
+      let cls = '';
+      if (isWinner) cls = 'is-winner';
+      else if (isLeader) cls = 'is-leader';
+      else if (isNext) cls = 'is-next';
+      else if (isPast) cls = 'is-past';
+
+      let badge = '';
+      if (isWinner) badge = '<span class="p-badge winner">🏆 Gewinner</span>';
+      else if (isLeader) badge = '<span class="p-badge leader">▶ Führend</span>';
+      else if (isNext) badge = '<span class="p-badge next">⏭ Nächster</span>';
+
+      return `<div class="participant-row ${cls}">
+        <span class="p-rank">${String(i + 1).padStart(2, '0')}</span>
+        <span class="p-name">${escHtml(p.name)}</span>
+        <span class="p-time">${p.guessTime} Uhr</span>
+        ${badge}
+      </div>`;
+    }).join('');
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+</script>
+</body>
+</html>

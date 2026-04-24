@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HV Wette — Admin</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <h1>🏛 HV-WETTE</h1>
+  <span class="badge">ADMIN</span>
+  <a href="/index.html" class="nav-link">📺 Live-Ansicht</a>
+</header>
+
+<div class="admin-layout">
+
+  <!-- Einstellungen -->
+  <div class="card">
+    <div class="list-title" style="font-size:.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:2px;margin-bottom:14px;">// EINSTELLUNGEN</div>
+    <div class="form-group">
+      <label>Wetteinsatz (€)</label>
+      <input type="number" id="bet-amount" min="1" value="10">
+    </div>
+    <button class="btn btn-blue btn-full" onclick="saveSettings()">Speichern</button>
+    <div class="status-bar" id="settings-status" style="display:none"></div>
+  </div>
+
+  <!-- Teilnehmer hinzufügen -->
+  <div class="card">
+    <div class="list-title" style="font-size:.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:2px;margin-bottom:14px;">// TEILNEHMER HINZUFÜGEN</div>
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="p-name" placeholder="z.B. Max Mustermann" maxlength="40">
+    </div>
+    <div class="form-group">
+      <label>Tipp-Uhrzeit</label>
+      <input type="time" id="p-time">
+    </div>
+    <button class="btn btn-green btn-full" onclick="addParticipant()">+ Hinzufügen</button>
+    <div class="status-bar" id="add-status" style="display:none"></div>
+  </div>
+
+  <!-- Teilnehmerliste -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <div class="list-title" style="font-size:.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:2px;margin-bottom:14px;">// TEILNEHMERLISTE</div>
+    <div id="admin-list"><div class="empty-state">Noch keine Teilnehmer...</div></div>
+  </div>
+
+  <!-- HV Ende -->
+  <div class="end-zone">
+    <div class="card">
+      <h3>🔴 HV ENDE EINGEBEN</h3>
+      <div class="end-row">
+        <div class="form-group">
+          <label>Tatsächliche Endzeit</label>
+          <input type="time" id="end-time">
+        </div>
+        <button class="btn btn-red" onclick="setEndTime()">HV ist beendet!</button>
+        <button class="btn btn-yellow" onclick="resetEnd()" id="reset-btn" style="display:none">↺ Zurücksetzen</button>
+      </div>
+      <div class="status-bar" id="end-status" style="display:none"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let currentState = null;
+
+  // ── SSE ──
+  const evtSource = new EventSource('/api/events');
+  evtSource.onmessage = (e) => {
+    currentState = JSON.parse(e.data);
+    renderAdmin(currentState);
+  };
+
+  function renderAdmin(data) {
+    const { participants, betAmount, actualEndTime } = data;
+
+    document.getElementById('bet-amount').value = betAmount;
+    document.getElementById('reset-btn').style.display = actualEndTime ? '' : 'none';
+
+    if (actualEndTime) {
+      document.getElementById('end-time').value = actualEndTime;
+    }
+
+    const listEl = document.getElementById('admin-list');
+    if (participants.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">Noch keine Teilnehmer...</div>';
+      return;
+    }
+
+    listEl.innerHTML = participants.map(p => `
+      <div class="admin-list-row">
+        <span class="al-name">${escHtml(p.name)}</span>
+        <span class="al-time">⏰ ${p.guessTime} Uhr</span>
+        <button class="al-del" onclick="deleteParticipant(${p.id})" title="Entfernen">✕</button>
+      </div>
+    `).join('');
+  }
+
+  // ── Auth ──
+  const pw = new URLSearchParams(window.location.search).get('pw') || '';
+  function authHeaders(extra = {}) {
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${pw}`, ...extra };
+  }
+
+  // ── API calls ──
+  async function saveSettings() {
+    const betAmount = Number(document.getElementById('bet-amount').value);
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ betAmount }),
+    });
+    showStatus('settings-status', res.ok ? '✓ Gespeichert' : '✗ Fehler', res.ok);
+  }
+
+  async function addParticipant() {
+    const name = document.getElementById('p-name').value.trim();
+    const guessTime = document.getElementById('p-time').value;
+    if (!name || !guessTime) {
+      showStatus('add-status', '✗ Name und Uhrzeit erforderlich', false);
+      return;
+    }
+    const res = await fetch('/api/participants', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ name, guessTime }),
+    });
+    if (res.ok) {
+      document.getElementById('p-name').value = '';
+      document.getElementById('p-time').value = '';
+      showStatus('add-status', `✓ ${name} hinzugefügt`, true);
+    } else {
+      const err = await res.json();
+      showStatus('add-status', `✗ ${err.error}`, false);
+    }
+  }
+
+  async function deleteParticipant(id) {
+    await fetch(`/api/participants/${id}`, { method: 'DELETE', headers: authHeaders() });
+  }
+
+  async function setEndTime() {
+    const endTime = document.getElementById('end-time').value;
+    if (!endTime) {
+      showStatus('end-status', '✗ Bitte Endzeit eingeben', false);
+      return;
+    }
+    const res = await fetch('/api/end', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ endTime }),
+    });
+    showStatus('end-status', res.ok ? `✓ HV Ende gesetzt: ${endTime} Uhr` : '✗ Fehler', res.ok);
+  }
+
+  async function resetEnd() {
+    await fetch('/api/reset', { method: 'POST', headers: authHeaders() });
+    document.getElementById('end-time').value = '';
+    showStatus('end-status', '↺ Zurückgesetzt', true);
+  }
+
+  function showStatus(id, msg, ok) {
+    const el = document.getElementById(id);
+    el.style.display = 'block';
+    el.style.color = ok ? 'var(--green)' : 'var(--red)';
+    el.innerHTML = `<span class="dot" style="background:${ok ? 'var(--green)' : 'var(--red)'}"></span>${msg}`;
+    setTimeout(() => { el.style.display = 'none'; }, 3000);
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Enter-key on name field
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('p-time').addEventListener('keydown', e => {
+      if (e.key === 'Enter') addParticipant();
+    });
+  });
+</script>
+</body>
+</html>
