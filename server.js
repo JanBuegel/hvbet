@@ -48,9 +48,10 @@ function loadState() {
       betAmount: saved.betAmount || 10,
       actualEndTime: saved.actualEndTime || null,
       winners: saved.winners || [],
+      mode: saved.mode || 'closest',
     };
   } catch {
-    return { participants: [], betAmount: 10, actualEndTime: null, winners: [] };
+    return { participants: [], betAmount: 10, actualEndTime: null, winners: [], mode: 'closest' };
   }
 }
 
@@ -129,43 +130,71 @@ function buildPayload() {
   let winners = state.winners;
 
   if (state.actualEndTime) {
-    // Meeting ended — compute winners
     const endMs = timeToMs(state.actualEndTime);
-    const withDiff = state.participants.map(p => ({
-      ...p,
-      diffMs: Math.abs(timeToMs(p.guessTime) - endMs),
-    }));
-    const minDiff = Math.min(...withDiff.map(p => p.diffMs));
-    winners = withDiff.filter(p => p.diffMs === minDiff);
+    if (state.mode === 'strict') {
+      // gerissen ist gerissen: winner = first person whose time hadn't passed when HV ended
+      const activeAtEnd = sorted.filter(p => timeToMs(p.guessTime) > endMs);
+      if (activeAtEnd.length > 0) {
+        const winTime = activeAtEnd[0].guessTime;
+        winners = activeAtEnd.filter(p => p.guessTime === winTime);
+      } else {
+        // All times passed — last standing wins
+        const lastTime = sorted[sorted.length - 1].guessTime;
+        winners = sorted.filter(p => p.guessTime === lastTime);
+      }
+    } else {
+      // closest: smallest absolute diff to actual end time
+      const withDiff = state.participants.map(p => ({
+        ...p,
+        diffMs: Math.abs(timeToMs(p.guessTime) - endMs),
+      }));
+      const minDiff = Math.min(...withDiff.map(p => p.diffMs));
+      winners = withDiff.filter(p => p.diffMs === minDiff);
+    }
   } else {
-    // Meeting running — leader is person closest to current time (would win if meeting ended now)
     const nowMs = now.getHours() * 3600000 + now.getMinutes() * 60000 + now.getSeconds() * 1000;
-    const withDiff = sorted.map(p => ({ ...p, diffMs: Math.abs(timeToMs(p.guessTime) - nowMs) }));
-    // On equal diff, prefer later guess time so the new leader takes over exactly at the midpoint
-    withDiff.sort((a, b) => a.diffMs - b.diffMs || b.guessTime.localeCompare(a.guessTime));
 
-    if (withDiff.length > 0) {
-      const leaderGuessTime = withDiff[0].guessTime;
-      const minDiff = withDiff[0].diffMs;
-      // Only group actual same-time duplicates, not people who are merely equidistant from now
-      const topGroup = withDiff.filter(p => p.diffMs === minDiff && p.guessTime === leaderGuessTime);
-      leader = topGroup[0];
-      leaders = topGroup;
-      nextLeader = sorted.find(p => p.guessTime > leader.guessTime) || null;
+    if (state.mode === 'strict') {
+      // gerissen ist gerissen: leader = next upcoming time
+      const active = sorted.filter(p => timeToMs(p.guessTime) > nowMs);
+      if (active.length > 0) {
+        leaders = [active[0]];
+        leader = active[0];
+        nextLeader = active[1] || null;
+      }
+    } else {
+      // closest: leader = smallest absolute diff to now
+      const withDiff = sorted.map(p => ({ ...p, diffMs: Math.abs(timeToMs(p.guessTime) - nowMs) }));
+      withDiff.sort((a, b) => a.diffMs - b.diffMs || b.guessTime.localeCompare(a.guessTime));
+      if (withDiff.length > 0) {
+        const leaderGuessTime = withDiff[0].guessTime;
+        const minDiff = withDiff[0].diffMs;
+        const topGroup = withDiff.filter(p => p.diffMs === minDiff && p.guessTime === leaderGuessTime);
+        leader = topGroup[0];
+        leaders = topGroup;
+        nextLeader = sorted.find(p => p.guessTime > leader.guessTime) || null;
+      }
     }
   }
 
-  // Midpoint between leader group and runner-up — leaders win if meeting ends before this time
   let leaderWinsUntil = null;
   let leaderWinsUntilMs = null;
-  if (leader && nextLeader) {
-    leaderWinsUntilMs = Math.round((timeToMs(leader.guessTime) + timeToMs(nextLeader.guessTime)) / 2);
-    const h = Math.floor(leaderWinsUntilMs / 3600000);
-    const m = Math.floor((leaderWinsUntilMs % 3600000) / 60000);
-    const s = Math.floor((leaderWinsUntilMs % 60000) / 1000);
-    leaderWinsUntil = s > 0
-      ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-      : `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  if (leader && !state.actualEndTime) {
+    if (state.mode === 'strict') {
+      // In strict mode the leader is safe until their own guess time
+      leaderWinsUntilMs = timeToMs(leader.guessTime);
+    } else if (nextLeader) {
+      // In closest mode: midpoint between leader and runner-up
+      leaderWinsUntilMs = Math.round((timeToMs(leader.guessTime) + timeToMs(nextLeader.guessTime)) / 2);
+    }
+    if (leaderWinsUntilMs !== null) {
+      const h = Math.floor(leaderWinsUntilMs / 3600000);
+      const m = Math.floor((leaderWinsUntilMs % 3600000) / 60000);
+      const s = Math.floor((leaderWinsUntilMs % 60000) / 1000);
+      leaderWinsUntil = s > 0
+        ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+        : `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
   }
 
   const pot = state.participants.length * state.betAmount;
@@ -173,6 +202,7 @@ function buildPayload() {
   return {
     participants: sorted,
     betAmount: state.betAmount,
+    mode: state.mode,
     pot,
     leader,
     leaders,
@@ -235,8 +265,9 @@ app.delete('/api/participants/:id', requireAuth, (req, res) => {
 });
 
 app.post('/api/settings', requireAuth, (req, res) => {
-  const { betAmount } = req.body;
+  const { betAmount, mode } = req.body;
   if (betAmount !== undefined) state.betAmount = Number(betAmount);
+  if (mode === 'closest' || mode === 'strict') state.mode = mode;
   saveState();
   broadcast('settings');
   res.json({ ok: true });
@@ -258,6 +289,16 @@ app.post('/api/reset', requireAuth, (req, res) => {
   state.winners = [];
   saveState();
   broadcast('reset');
+  res.json({ ok: true });
+});
+
+app.post('/api/fullreset', requireAuth, (req, res) => {
+  state.participants = [];
+  state.actualEndTime = null;
+  state.winners = [];
+  nextId = 1;
+  saveState();
+  broadcast('fullreset');
   res.json({ ok: true });
 });
 

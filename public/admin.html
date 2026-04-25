@@ -23,6 +23,13 @@
       <label>Wetteinsatz (€)</label>
       <input type="number" id="bet-amount" min="1" value="10">
     </div>
+    <div class="form-group">
+      <label>Spielmodus</label>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button id="mode-closest" class="btn btn-full" onclick="setMode('closest')" style="flex:1">🎯 Am nächsten dran</button>
+        <button id="mode-strict" class="btn btn-full" onclick="setMode('strict')" style="flex:1">✂️ Gerissen ist gerissen</button>
+      </div>
+    </div>
     <button class="btn btn-blue btn-full" onclick="saveSettings()">Speichern</button>
     <div class="status-bar" id="settings-status" style="display:none"></div>
   </div>
@@ -58,9 +65,19 @@
           <input type="time" id="end-time">
         </div>
         <button class="btn btn-red" onclick="setEndTime()">HV ist beendet!</button>
-        <button class="btn btn-yellow" onclick="resetEnd()" id="reset-btn" style="display:none">↺ Zurücksetzen</button>
+        <button class="btn btn-yellow" onclick="resetEnd()" id="reset-btn" style="display:none">↺ Endzeit zurücksetzen</button>
       </div>
       <div class="status-bar" id="end-status" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Full Reset -->
+  <div class="end-zone">
+    <div class="card" style="border-color:var(--text-dim)">
+      <h3 style="color:var(--text-dim)">♻️ NEUE RUNDE</h3>
+      <p style="font-size:.8rem;color:var(--text-dim);margin-bottom:14px;">Löscht alle Teilnehmer und setzt das Spiel zurück. Einsatz und Modus bleiben erhalten.</p>
+      <button class="btn btn-full" style="border-color:var(--text-dim);color:var(--text-dim)" onclick="fullReset()">Alle Daten löschen</button>
+      <div class="status-bar" id="fullreset-status" style="display:none"></div>
     </div>
   </div>
 
@@ -76,10 +93,19 @@
     renderAdmin(currentState);
   };
 
+  let selectedMode = 'closest';
+
+  function setMode(mode) {
+    selectedMode = mode;
+    document.getElementById('mode-closest').className = `btn btn-full ${mode === 'closest' ? 'btn-green' : ''}`;
+    document.getElementById('mode-strict').className = `btn btn-full ${mode === 'strict' ? 'btn-yellow' : ''}`;
+  }
+
   function renderAdmin(data) {
-    const { participants, betAmount, actualEndTime } = data;
+    const { participants, betAmount, actualEndTime, mode } = data;
 
     document.getElementById('bet-amount').value = betAmount;
+    setMode(mode || 'closest');
     document.getElementById('reset-btn').style.display = actualEndTime ? '' : 'none';
 
     if (actualEndTime) {
@@ -113,7 +139,7 @@
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ betAmount }),
+      body: JSON.stringify({ betAmount, mode: selectedMode }),
     });
     showStatus('settings-status', res.ok ? '✓ Gespeichert' : '✗ Fehler', res.ok);
   }
@@ -162,6 +188,12 @@
     await fetch('/api/reset', { method: 'POST', headers: authHeaders() });
     document.getElementById('end-time').value = '';
     showStatus('end-status', '↺ Zurückgesetzt', true);
+  }
+
+  async function fullReset() {
+    if (!confirm('Wirklich alle Teilnehmer und Ergebnisse löschen?')) return;
+    const res = await fetch('/api/fullreset', { method: 'POST', headers: authHeaders() });
+    showStatus('fullreset-status', res.ok ? '♻️ Alles zurückgesetzt' : '✗ Fehler', res.ok);
   }
 
   function showStatus(id, msg, ok) {

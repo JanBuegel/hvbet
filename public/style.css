@@ -156,6 +156,32 @@ body {
 .participant-row.is-leader { border-left-color: var(--green); background: rgba(57,211,83,.05); }
 .participant-row.is-next { border-left-color: var(--yellow); }
 .participant-row.is-past { opacity: 0.45; }
+.participant-row.is-out,
+.participant-row.is-out-still {
+  opacity: 0.38;
+  position: relative;
+}
+.participant-row.is-out::after,
+.participant-row.is-out-still::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 50%;
+  height: 1px;
+  background: var(--red);
+  transform-origin: left;
+}
+.participant-row.is-out::after {
+  animation: strikethrough 0.5s cubic-bezier(.4,0,.2,1) forwards;
+}
+.participant-row.is-out-still::after {
+  transform: scaleX(1);
+}
+@keyframes strikethrough {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
 .participant-row.is-winner { border-left-color: gold; background: rgba(255,215,0,.08); }
 .p-rank { font-size: 0.75rem; color: var(--text-dim); width: 20px; }
 .p-name { flex: 1; font-size: 0.9rem; }

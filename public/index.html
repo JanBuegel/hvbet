@@ -12,6 +12,7 @@
 <header class="site-header">
   <h1>🏛 HV-WETTE</h1>
   <span class="badge">LIVE</span>
+  <span id="mode-badge" class="badge" style="margin-left:4px"></span>
 </header>
 
 <div class="frontend-layout">
@@ -86,6 +87,7 @@
 
   // ── SSE ──
   let lastWinnerState = false;
+  const knownOutIds = new Set();
   const evtSource = new EventSource('/api/events');
 
   evtSource.onmessage = (e) => {
@@ -112,9 +114,14 @@
   };
 
   function render(data) {
-    const { participants, betAmount, pot, leader, leaders, nextLeader, actualEndTime, winners } = data;
+    const { participants, betAmount, pot, leader, leaders, nextLeader, actualEndTime, winners, mode } = data;
     const leaderIds = new Set((leaders || []).map(l => l.id));
     const now = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+    const modeBadge = document.getElementById('mode-badge');
+    modeBadge.textContent = mode === 'strict' ? '✂️ gerissen ist gerissen' : '🎯 am nächsten dran';
+    modeBadge.style.borderColor = mode === 'strict' ? 'var(--yellow)' : 'var(--green)';
+    modeBadge.style.color = mode === 'strict' ? 'var(--yellow)' : 'var(--green)';
 
     // Winner state
     const isFinished = !!actualEndTime && winners.length > 0;
@@ -135,6 +142,7 @@
     } else {
       lastWinnerState = false;
       confettiFired = false;
+      knownOutIds.clear();
       winnerBanner.classList.remove('visible');
       leaderCard.style.display = '';
       nextCard.style.display = '';
@@ -142,7 +150,8 @@
       const leaderNames = leaders && leaders.length > 0 ? leaders.map(l => l.name).join(' & ') : '—';
       document.getElementById('leader-name').textContent = leaderNames;
       document.getElementById('leader-time').textContent = leader ? `⏰ ${leader.guessTime} Uhr` : '';
-      document.getElementById('leader-wins-until').textContent = data.leaderWinsUntil ? `hat gewonnen bis: ${data.leaderWinsUntil} Uhr` : '';
+      const winsUntilLabel = mode === 'strict' ? 'im Rennen bis:' : 'hat gewonnen bis:';
+      document.getElementById('leader-wins-until').textContent = data.leaderWinsUntil ? `${winsUntilLabel} ${data.leaderWinsUntil} Uhr` : '';
       document.getElementById('next-name').textContent = nextLeader ? nextLeader.name : '—';
       document.getElementById('next-time').textContent = nextLeader ? `⏰ ${nextLeader.guessTime} Uhr` : '';
     }
@@ -160,9 +169,12 @@
     }
 
     const winnerIds = new Set(winners.map(w => w.id));
+    if (!actualEndTime && participants.length === 0) knownOutIds.clear();
 
     listEl.innerHTML = participants.map((p, i) => {
       const isPast = !actualEndTime && p.guessTime < now;
+      const isNewlyOut = isPast && !knownOutIds.has(p.id);
+      if (isPast) knownOutIds.add(p.id);
       const isLeader = !isFinished && leaderIds.has(p.id);
       const isNext = !isFinished && nextLeader && p.id === nextLeader.id;
       const isWinner = winnerIds.has(p.id);
@@ -171,7 +183,8 @@
       if (isWinner) cls = 'is-winner';
       else if (isLeader) cls = 'is-leader';
       else if (isNext) cls = 'is-next';
-      else if (isPast) cls = 'is-past';
+      else if (isNewlyOut) cls = 'is-out';
+      else if (isPast) cls = 'is-out-still';
 
       let badge = '';
       if (isWinner) badge = '<span class="p-badge winner">🏆 Gewinner</span>';
